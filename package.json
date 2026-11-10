@@ -1,0 +1,52 @@
+{
+    "name": "testar-state-model-asm",
+    "version": "0.3.0",
+    "description": "Native TypeScript action selection using abstract state models",
+    "type": "module",
+    "license": "BSD-3-Clause",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "docs",
+        "README.md",
+        "LICENSE",
+        "TODO.md",
+        "compatibility.json"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "prepare": "npm run build",
+        "typecheck": "tsc -p tsconfig.test.json",
+        "test": "vitest run",
+        "check": "npm run typecheck && npm test",
+        "prepare:conformance": "node tools/prepare-conformance.ts",
+        "check:browser": "node tools/check-browser.ts",
+        "example": "npm run build && node examples/select-action.ts"
+    },
+    "dependencies": {
+        "testar-abstraction": "github:ferpasri/testar-abstraction-typescript#v0.3.3",
+        "testar-evidence": "github:ferpasri/testar-evidence-typescript#v0.3.0"
+    },
+    "devDependencies": {
+        "@types/node": "26.6.6",
+        "typescript": "7.0.2",
+        "vitest": "5.1.0",
+        "fflate": "0.8.3",
+        "esbuild": "0.28.2",
+        "playwright": "1.65.0"
+    },
+    "engines": {
+        "node": ">=24"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/ferpasri/testar-state-model-asm-typescript.git"
+    }
+}
