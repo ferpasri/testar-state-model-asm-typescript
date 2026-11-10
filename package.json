@@ -1,6 +1,6 @@
 {
     "name": "testar-state-model-asm",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "description": "Native TypeScript action selection using abstract state models",
     "type": "module",
     "license": "BSD-3-Clause",

@@ -5,7 +5,7 @@ Select GUI actions using a state model built from concrete test evidence and abs
 ## Install
 
 ~~~shell
-npm install github:ferpasri/testar-state-model-asm-typescript#v0.3.0
+npm install github:ferpasri/testar-state-model-asm-typescript#v0.3.1
 ~~~
 
 Applications import `testar-state-model-asm`. The package runs in browsers and Node.js. Browser applications use a bundler and a secure context, such as HTTPS or localhost, for WebCrypto.

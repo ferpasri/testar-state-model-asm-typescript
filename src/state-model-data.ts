@@ -1,9 +1,11 @@
 import {
-    AbstractionLimitError, constructAbstractModel, runKey,
-    type AbstractionRules, type AbstractModel, type AnalysisSource,
+    AbstractionLimitError,
+    type AbstractionRules, type AbstractModel,
     type Observation, type RecordedExecution, type RecordedRun, type RecordedSequence,
 } from "testar-abstraction";
-import { ReconstructedEvidence, evidenceEvent, type EventType, type EventData } from "testar-evidence";
+import { SourceValidation } from "./source-validation.js";
+import { ModelConstruction } from "./model-construction.js";
+import { ownRecord } from "./record-copies.js";
 import { AsmError, requireAsm } from "./errors.js";
 import { compareText, compareList, copy, digest, freeze, key, same } from "./data.js";
 import type { EvidenceSnapshot, SourceSnapshot, RunReference } from "./types.js";
@@ -39,12 +41,15 @@ export async function prepareSnapshot(input: EvidenceSnapshot, previous?: StateM
                     requireAsm(typeof id === "string" && !ids.has(id), "invalid_evidence", "Repeated or invalid record identity.");
                     ids.add(id);
                     const known = old.get(id);
-                    return known && same(known, record) ? known : freeze(copy(record));
+                    return ownRecord(record, known);
                 }).sort((a, b) => compareText(recordId(name, a), recordId(name, b)));
             }
             // Metadata is checked too; a caller's fingerprint never replaces content comparison.
             const metadata = copy({ id: source.id, label: source.label, fingerprint: source.fingerprint });
-            sources.push(freeze({ ...metadata, evidence }));
+            const unchanged = accepted && same(metadata, {id: accepted.id, label: accepted.label, fingerprint: accepted.fingerprint}) &&
+                COLLECTIONS.every(name => evidence[name].length === accepted.evidence[name].length &&
+                    evidence[name].every((record: object, index: number) => record === accepted.evidence[name][index]));
+            sources.push(unchanged ? accepted : freeze({...metadata, evidence}));
         }
         sources.sort((a, b) => compareText(a.id, b.id));
         const selected_runs = [...copy([...input.selected_runs])].sort((a, b) => compareList([a.source, a.run], [b.source, b.run], compareText));
@@ -84,59 +89,6 @@ function stripLifecycle(record: RecordedRun | RecordedSequence): any {
     return facts;
 }
 
-/** Validate a source's references and lifecycle through the evidence library before accepting it. */
-function validateSource(source: SourceSnapshot): void {
-    const evidence = source.evidence;
-    const history = new ReconstructedEvidence({ schema_version: 3, evidence_id: source.id });
-    function apply<K extends EventType>(type: K, data: unknown) {
-        history.apply(evidenceEvent(String(history.eventCount + 1), type, data as EventData[K]));
-    }
-    for (const action of evidence.actions) {
-        apply("action_described", action);
-    }
-    for (const run of evidence.runs) {
-        apply("test_run_started", stripLifecycle(run));
-        const sequences = evidence.sequences.filter(item => item.test_run === run.id)
-            .sort((a, b) => a.sequence_index < b.sequence_index ? -1 : a.sequence_index > b.sequence_index ? 1 : 0);
-        for (const sequence of sequences) {
-            apply("test_sequence_started", stripLifecycle(sequence));
-            const observations = evidence.observations.filter(item => item.test_sequence === sequence.id)
-                .sort((a, b) => a.observation_index < b.observation_index ? -1 : a.observation_index > b.observation_index ? 1 : 0);
-            const executions = evidence.executions.filter(item => item.execution.test_sequence === sequence.id);
-            for (const observation of observations) {
-                apply("observation_recorded", observation);
-                for (const record of executions) {
-                    if (record.resultingObservation === observation.id) {
-                        apply("transition_recorded", { action_execution: record.execution.id, resulting_observation: observation.id });
-                    }
-                }
-                for (const record of executions) {
-                    if (record.execution.source_observation === observation.id) {
-                        apply("action_selected", record.execution);
-                        if (record.executionResult !== null) {
-                            apply("action_execution_reported", record.executionResult);
-                        }
-                    }
-                }
-            }
-            requireAsm(sequence.status === "running" || sequence.status === "finished", "invalid_evidence", "Unknown sequence status.");
-            if (sequence.status === "finished") {
-                apply("test_sequence_finished", { test_sequence: sequence.id, reason: sequence.reason ?? "Recorded sequence finished" });
-            }
-        }
-        requireAsm(run.status === "running" || run.status === "finished", "invalid_evidence", "Unknown run status.");
-        if (run.status === "finished") {
-            apply("test_run_finished", { test_run: run.id, reason: run.reason ?? "Recorded run finished" });
-        }
-    }
-    requireAsm(history.observations.length === evidence.observations.length &&
-        history.testSequences.length === evidence.sequences.length &&
-        history.actionExecutions.length === evidence.executions.length, "invalid_evidence", "Unresolved evidence records.");
-    for (const record of evidence.executions) {
-        requireAsm(history.actionExecution(record.execution.id)?.status === record.status, "invalid_evidence", "Execution status differs from its lifecycle.");
-    }
-}
-
 function checkExtension(previous: SourceSnapshot, incoming: SourceSnapshot): void {
     for (const name of COLLECTIONS) {
         const indexed = new Map((incoming.evidence[name] as any[]).map(record => [recordId(name, record), record]));
@@ -174,6 +126,8 @@ export class StateModelData {
     model!: AbstractModel;
     signature!: string;
     selectedRuns!: RunReference[];
+    private validations = new Map<string, SourceValidation>();
+    private construction = new ModelConstruction();
 
     static async create(prepared: PreparedSnapshot, rules: AbstractionRules, previous?: StateModelData): Promise<StateModelData> {
         try {
@@ -200,20 +154,9 @@ export class StateModelData {
             data.sources = merged;
             data.selectedRuns = incoming.selected_runs;
             for (const source of sources) {
-                if (!previous?.sources.has(source.id) || !same(previous.sources.get(source.id), source)) {
-                    validateSource(source);
-                }
+                const validated = previous?.validations.get(source.id);
+                data.validations.set(source.id, validated?.source === source ? validated : SourceValidation.validate(source, validated));
             }
-            const analysisSources: AnalysisSource[] = sources.map(source => ({
-                ...source,
-                evidence: {
-                    runs: new Map(source.evidence.runs.map(record => [record.id, record])),
-                    sequences: new Map(source.evidence.sequences.map(record => [record.id, record])),
-                    observations: new Map(source.evidence.observations.map(record => [record.id, record])),
-                    actions: new Map(source.evidence.actions.map(record => [record.id, record])),
-                    executions: new Map(source.evidence.executions.map(record => [record.execution.id, record])),
-                },
-            }));
             for (const reference of data.selectedRuns) {
                 const id = key(reference.source, reference.run);
                 requireAsm(!data.runs.has(id), "invalid_evidence", "Repeated selected run.");
@@ -232,8 +175,8 @@ export class StateModelData {
                     }
                 }
             }
-            const constructed = await constructAbstractModel(analysisSources, rules, data.selectedRuns.map(item => runKey(item.source, item.run)));
-            data.model = freeze(constructed.model);
+            data.construction = previous?.construction ?? data.construction;
+            data.model = freeze(await data.construction.construct(data, previous, rules));
             return data;
         } catch (error) {
             if (error instanceof AsmError) {

@@ -33,7 +33,9 @@ Pending reports keep the execution outstanding. Terminal reports allow the next 
 
 `updateEvidence(updateId, sources, selectedRuns)` accepts full snapshots for supplied sources. Omitted sources remain accepted; the selected-run list retains the previous scope. Existing immutable records and accepted results remain unchanged. Equivalent retries leave the revision unchanged.
 
-Calls are serialized through a per-run promise queue. Incoming records are independently copied and frozen; unchanged accepted records and their content digests are reused. Changed source lifecycles and candidate models are checked before installation. Model construction uses the abstraction library's combined preview-and-model operation. Selection itself neither reconstructs history nor rebuilds the model.
+Calls are serialized through a per-run promise queue. Records are copied and frozen before acceptance. Unchanged, fully immutable input can reuse its owned copy; mutable input is compared again so later changes are detected. New observations and execution changes extend the checked lifecycle history. The abstraction library retains widget indexes and state/action comparisons between model updates.
+
+Candidate updates are checked before installation. If a candidate is rejected, private working caches are rebuilt from accepted records before their next use.
 
 `run.model` returns an immutable model snapshot. Earlier snapshots remain valid after updates. Errors expose an `AsmError.code` and leave accepted state unchanged. `cancel()` stops further selection and invocation while allowing final execution reports.
 

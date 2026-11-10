@@ -17,9 +17,18 @@ export function freeze<T>(value: T): T {
 }
 /** Compare identifiers in Unicode code-point order, including supplementary characters. */
 export function compareText(left: string, right: string): number {
-    const a = Array.from(left, character => character.codePointAt(0)!);
-    const b = Array.from(right, character => character.codePointAt(0)!);
-    return compareList(a, b, (x, y) => x - y);
+    let leftIndex = 0;
+    let rightIndex = 0;
+    while (leftIndex < left.length && rightIndex < right.length) {
+        const leftPoint = left.codePointAt(leftIndex)!;
+        const rightPoint = right.codePointAt(rightIndex)!;
+        if (leftPoint !== rightPoint) {
+            return leftPoint - rightPoint;
+        }
+        leftIndex += leftPoint > 0xffff ? 2 : 1;
+        rightIndex += rightPoint > 0xffff ? 2 : 1;
+    }
+    return leftIndex < left.length ? 1 : rightIndex < right.length ? -1 : 0;
 }
 export function compareList<T>(left: readonly T[], right: readonly T[], compare: (a: T, b: T) => number): number {
     for (let index = 0; index < Math.min(left.length, right.length); index++) {
